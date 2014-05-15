@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+<title>Connecticut Superintendents' Salaries</title>
+<style type="text/css">
+	.little-square { 
+		width: 15px !important;
+		height: 15px !important;
+		padding: 0;
+		margin: 4px 10px 0 0;
+		border: 1px solid black;
+		display: inline;
+		float: left;
+		filter: alpha(opacity=66); /* internet explorer */
+		-khtml-opacity: 0.66;      /* khtml, old safari */
+		-moz-opacity: 0.66;       /* mozilla, netscape */
+		opacity: 0.66;      
+	}
+	.thekey {
+		width: 80px;
+	}
+</style>
+
+<!--this stylesheet has the CSS for both a map and a table-->
+<link rel="stylesheet" href="data/lib/css/mapTable.css" />
+
+<script type="text/javascript" src="http://www.google.com/jsapi"></script>
+<script src="data/lib/js/jquery-1.8.2.min.js"></script>
+
+<script src="data/lib/js/underscore-min.js"></script>
+<script src="data/lib/js/backbone-min.js"></script>
+<script src="data/lib/js/handlebars-1.0.rc.1.js"></script>
+<script src="data/lib/js/thunderdome.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?sensor=true"
+  type="text/javascript"></script>
+<script src="data/lib/js/oms-google.min.js"></script>
+<script type="text/javascript">
+//google visualization libs we need
+google.load('visualization', '1.1', {packages: ['controls','table']});
+</script>
+
+<script type="text/javascript">
+//if we need to have more than one marker show up based on some criteria
+//set it here and then below in the config
+var markerColors = new Array();
+//the key is the value of the field (set below)
+//used to determine which marker color to show
+markerColors['W'] = 'data/lib/images/markers/pointer-orange.png';
+markerColors['D'] = 'data/lib/images/markers/pointer-blue.png';
+
+var polygonOptions = {
+    strokeColor: "#FFF",
+    strokeOpacity: 0.66,
+    strokeWeight: 1,
+    fillOpacity: 0.66
+  };
+
+
+
+var polygonColors = function(salary) {
+	if(salary == 1) {
+		return "#e3edde";
+	}
+	if(salary == 2) {
+		return "#c9ddbf";
+	}
+	if(salary == 3) {
+		return "#adcd9d";
+	}
+	if(salary == 4) {
+		return "#6d8e5e";
+	}
+	return "#495e3f";
+}
+
+var theMap;
+var data = new Array();
+var fusionTableData;
+
+//map config stuff
+var mapConfig = new Thunderdome.mapConfig( {
+	mapAPI:			'Google',
+	mapTiles:		'http://a.tiles.mapbox.com/v3/mapbox.mapbox-light/{z}/{x}/{y}.png', //CloudMade map tiles to use
+	attribution:	'Map tiles by <a href="http://stamen.com">Stamen Design</a>,'
+					+ 'under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>.'
+					+ 'Data by <a href="http://openstreetmap.org">OpenStreetMap</a>,'
+					+ 'under <a href="http://creativecommons.org/licenses/by-sa/3.0">CC BY SA</a>.', //Text for map attribution
+	//Start lat, lon and zoom level for map init
+	startLat:		41.51, 
+	startLon:		-72.724,
+	startZoom:		9,
+	mapDiv:			'map', //id of div where map will go
+	showMarkers:	false,
+	showPolygons:	true,
+	//fields from JSON data we want to show in popups and modal window (for detail)
+	//should correspond to placeholders in handlebars templates
+	popupItems: 	['district','superintendent','salaries_2012-13_w_annuity','no_of_students','cost_per_student','mileage','vacation_days','sick_days','personal_days','link_to_contract'],
+
+	popupTemplate:	'popupText', //id of handlebars template script
+	dollarFormatCols:	['salaries_2012-13_w_annuity','cost_per_student','mileage'],
+	numberFormatCols:	['no_of_students'],
+	modalDiv:		'modal', //id of div used by jquery dialog ui
+	modalWidth:		300, //width of modal window
+	modalHeight:	'auto', //height of modal window
+	modalTitle:		'property',
+	modalItems: 	['Site','City','State','URL','Brand Twitter handle','Brand Facebook URL','Newseum front page link'],   
+
+	modalTemplate:	'modalText', //id of handlebars template script
+	//field from JSON data to use for marker key
+	//should be unique; used to retrieve markers for callbacks
+	markerKey:		'district',
+	markerColors:	markerColors,
+	polygonOptions: polygonOptions,
+	polygonColors:  polygonColors,
+	markerColorKey:	'color_category', //field we'll use to determine what marker color to show
+	legend:			true,
+	mapLegendTemplate: 'mapLegendTemplate',
+	mapLegendClass: 'thekeyWider',
+	showTable:		true
+} );
+
+
+//config for the datagrid
+var tableConfig = new Thunderdome.tableConfig({
+	//IDs of divs where pieces will go
+	mainDiv: 		'gridContainer',
+	searchDiv: 		'searchField',
+	tableDiv: 		'dfm',
+	showSearch:		true, //do we want a search field?
+	showCategory:	false, //do we want a pulldown to filter the results?
+	showMap:		true,
+	//table header config
+	//'label' is what shows in that column head
+	//'type' is the data type (used for sorting, etc.)
+	//TODO: try to abstract this to make config simpler
+	tableHeader:	[
+						{'label': 'District', 'type': 'string'},
+						{'label': 'Superintendent', 'type': 'string'},
+						{'label': '2012-13 Salary', 'type': 'number'},
+						{'label': 'Enrollment', 'type': 'number'},
+						{'label': 'Cost per student', 'type': 'number'},
+						{'label': 'Contract', 'type': 'string'}					
+					],
+	//fields from JSON data we want to show in table
+	//for example {'Site': 'Example Site', 'State': 'CA', 'MNG/JRC','Another Field': 'Some data'}
+	//would only show data from Site, State and MNG/JRC
+	tableCols:			['district','superintendent','salaries_2012-13_w_annuity','no_of_students','cost_per_student','link_to_contract'],
+	
+	dollarFormatCols:	['salaries_2012-13_w_annuity','mileage','cost_per_student'],
+	pageSize:		10,
+	numberFormatCols:	['no_of_students'],
+	//table column we want search field to filter
+	//should be name of the label in tableHeader above
+	fieldToSearch: 	'District',
+
+	searchLabel:	'Search districts', //label text added to search field
+	searchCSSClass:	'searchFieldText', //css applied to search field text
+	categoryCSSClass:	'categoryFilterText', //css applied to category dropdown text
+	headerCSSClass:	'', //css applied to header
+	rowCSSClass:	'' //css applied to rows
+});
+
+
+var drawMapAndGrid = function() {
+	var collection;
+//	Thunderdome.csv("https://docs.google.com/spreadsheet/pub?key=0Arge6e6GMpdUdFJ2WHFPUmZmQXQxRWMtR25TM0U0Mmc&single=true&gid=2&output=csv", function(data) {
+	
+	collection = new Backbone.Collection(data);
+	
+
+	Thunderdome.data = collection;
+	Thunderdome.mapConfig = mapConfig;
+	Thunderdome.tableConfig = tableConfig;
+	theMap = Thunderdome.makeMap();
+	var theTable = Thunderdome.makeDataTable(theMap.getMarkers,theMap.getPolygons,theMap.getMap,theMap.getOMS,theMap.getInfoWindow);
+//	parseFusionTable(fusionTableData);
+//	});
+}
+
+//we need to wait till all the google libraries are ready, then fire the callback
+google.setOnLoadCallback(drawMapAndGrid);
+</script>
+
+<script type="text/javascript">
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'UA-37303540-1'], ['_trackPageview']);
+ 
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+</script>
+
+</head>
+	<body>
+	<div id="container">
+		<h1>Connecticut Superintendents' Salaries</h1>
+		<div id="explainer">
+		<p>Staff at <a href="http://www.middletownpress.com/articles/2012/12/29/news/doc50de6bd37a5f6958474556.txt">The Middletown Press</a>, <a href="http://nhregister.com/articles/2012/12/29/news/doc50de68e6ec274245989063.txt">New Haven Register</a> and <a href="http://registercitizen.com/articles/2012/12/29/news/doc50de6b0e7e2ff221164920.txt">The Register Citizen</a> compared 148 superintendent contracts received under Freedom of Information requests in October and November, specifically looking at salary, mileage reimbursements and vacation, sick and personal time <a href="http://www.middletownpress.com/articles/2012/12/29/news/doc50de6b7e31db3347172902.txt">and other perks</a>.</p>
+	
+		<p>Twenty-seven school superintendents in Connecticut make more than $200,000 per year in salary, with tax sheltered annuities and bonuses for doctorate degrees included.</p>
+	
+		<p>Salaries range from $100,000 to $285,000 for full-time superintendents and from $36,000 to $95,000 for part-time superintendents. The average salary for a superintendent in Connecticut is about $164,000 per year.</p>
+		
+		
+		</div>
+		
+		<div id="map" class="map floatLeft"></div>
+		<div id="gridContainer" class="floatLeft gridContainer">
+			<p class="clearBoth"><b>Click on a name in the table to reveal more information in the map.</b> | <a href="data/CT-superintendents-salaries.csv">Download data</a></p>
+			<div id="searchField" style="float:left;"></div>
+			<div id="filterCategory"></div>
+			
+			<div id="dfm" class="tableContainer clearBoth"></div>
+		</div>
+		
+		<div id="footnotes">
+		<h4>Footnotes</h4>
+		<p>* Superintendent gets reimbursed for mileage at the IRS rate of 55.5 cents per mile</p>
+		
+		<p>** Salary is for 2011-12</p>
+
+		<p>*** Retired superintendents who fill in as interim superintendents can only be paid 45 percent of the position's regular salary under state statute</p>
+		
+		</div>
+		<div id="credits">Source:Connecticut school districts<br/>Credits: Viktoria Sundqvist, Peggy Bustamante, Vaughn Hagerty and Nelson Hsu</div>
+	</div>
+
+<!--handlebars template to build map popups-->
+
+<script id="popupText" type="text/x-handlebars-template">
+<b>District:</b> {{district}}<br>
+<b>Superintendent:</b> {{superintendent}}<br>
+<b>Salary 2012-13:</b> {{salaries_2012-13_w_annuity}}<br>
+<b>No. of students:</b> {{no_of_students}}<br>
+<b>Cost per student:</b> {{cost_per_student}}<br>
+<b>Mileage:</b> {{mileage}}<br>
+<b>Vacation days:</b> {{vacation_days}}<br>
+<b>Sick days:</b> {{sick_days}}<br>
+<b>Personal days:</b> {{personal_days}}<br>
+<b>{{{link_to_contract}}}</b>
+
+</script>
+ 
+ 
+<script id="mapLegendTemplate" type="text/x-handlebars-template">
+	<p><b>Salary range</b></p>
+	<p><div class="little-square" style="background-color:#e3edde"></div><span>less than $100K</span></p>
+	<p><div class="little-square" style="background-color:#c9ddbf"></div><span> $100K to $150K</span></p>
+	<p><div class="little-square" style="background-color:#adcd9d"></div><span class="keytext">$151K to $175K</span></p>
+	<p><div class="little-square" style="background-color:#6d8e5e"></div><span class="keytext">$176K to $200K</span></p>
+	<p><div class="little-square" style="background-color:#495e3f"></div><span class="keytext">more than $200K</span></p>
+</script>
+
+
+<script type="text/javascript">
+function parseFusionTable(response) {
+	var checkNaN = ['mileage','cost_per_student','sick_days','personal_days','vacation_days'];
+	fusionTableData = response;
+	var item;
+	_.each(fusionTableData.rows, function(row) {
+		item = {};
+		for(i in fusionTableData.columns) {
+			if($.inArray(fusionTableData.columns[i],checkNaN) != -1 && isNaN(row[i])) {
+				row[i] = '';
+			}
+			if(fusionTableData.columns[i] == 'no_of_students' && typeof row[i] == 'string') {
+					row[i] = parseInt(row[i]);
+			}
+			item[ fusionTableData.columns[i] ] = row[i];
+		}
+		data.push(item);
+		
+	});
+
+}
+</script>
+</script>
+<script type="text/javascript" src="https://www.googleapis.com/fusiontables/v1/query?sql=SELECT * from 1xOT1ljSbON-UXlr_TEL46jtT_nwCRf-trF44O6Y&key=AIzaSyAMg8ihISLt54Z2OGce9YVq_YtTZJTxxfY&callback=parseFusionTable">
+</script>
+
+	</body>
+</html>
