@@ -3,7 +3,11 @@ CT-superintendents
 
 What is this?
 -------------
-Map and table comparing Connecticut superintendents salaries
+Map and table comparing Connecticut superintendents salaries to accompany reporting in December 2012 by the Middletown Press' Viktoria Sundqvist.
+
+Story: http://www.nhregister.com/news/superintendents
+
+![ct map](screenshots/ct.png)
 
 Credits
 ---------
